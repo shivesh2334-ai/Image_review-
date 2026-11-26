@@ -7,11 +7,12 @@ let media=null,url='',name='',marks=[],review=null,placing=false,busy=false,fram
 const message=s=>{$('status').textContent=s};
 const clock=t=>Number(t).toFixed(2)+' s';
 const current=()=>media===video?video.currentTime:0;
+let aiConfig;
 function controls(){
  const moving=media===video&&frameReady&&!busy;
  for(const id of ['back','next','time']) $(id).disabled=!moving;
  for(const id of ['mark','snapshot']) $(id).disabled=!media||!frameReady||busy;
- $('analyse').disabled=!media||!frameReady||busy;
+ $('analyse').disabled=!media||!frameReady||busy||!aiConfig?.endpointConfigured;
  $('file').disabled=busy; $('demo').disabled=busy;
 }
 function draw(){
@@ -120,6 +121,8 @@ $('snapshot').onclick=()=>canvas.toBlob(b=>{if(b)save(b,'annotated-frame.png')})
 $('export').onclick=()=>save(new Blob([JSON.stringify({study:name,modality:$('modality').value,request:$('request').value,review,annotations:marks},null,2)],{type:'application/json'}),'imaging-review.json');
 $('analyse').onclick=async()=>{
  if(!$('consent').checked)return message('Confirm de-identification and approval before AI review.');
+ const accessCode=$('reviewAccess').value.trim();
+ if(aiConfig?.accessTokenRequired&&!accessCode)return message('Enter the AI review access code.');
  const request=$('request').value.trim();if(!request)return message('Enter a review request.');
  busy=true;controls();const start=current();message('Preparing selected images…');
  try{
@@ -134,7 +137,7 @@ $('analyse').onclick=async()=>{
    frames.push({time:current(),image:copy.toDataURL('image/jpeg',.78)});
   }
   message('Reviewing '+frames.length+' selected image(s)…');
-  const response=await fetch('/api/review',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request,modality:$('modality').value,frames,consent:true})});
+  const response=await fetch('/api/review',{method:'POST',headers:{'Content-Type':'application/json',...(accessCode?{'X-Imaging-Review-Token':accessCode}:{})},body:JSON.stringify({request,modality:$('modality').value,frames,consent:true})});
   const result=await response.json().catch(()=>({error:'Start the included review server to enable AI review.'}));
   if(!response.ok)throw Error(result.error||'Review failed.');
   review={summary:result.summary,limitations:result.limitations,frameTimes:frames.map(f=>f.time)};
@@ -156,8 +159,12 @@ $('demo').onclick=async()=>{
  };im.src='pe-case.svg';
 };
 fetch('/api/config').then(r=>r.ok?r.json():null).then(cfg=>{
- if(!cfg||!$('modelNote'))return;
- const adapterLabel=cfg.adapter==='medgemma'?'MedGemma box-to-point + JSON schema':'point + JSON schema';
- $('modelNote').textContent=`Media stays in your browser during manual review. AI review sends sampled images and your request to ${cfg.model} (${adapterLabel}).`;
-}).catch(()=>{});
+ aiConfig=cfg;
+ $('reviewAccessRow').hidden=!cfg?.endpointConfigured||!cfg.accessTokenRequired;
+ $('modelNote').textContent=cfg?.endpointConfigured
+  ? `AI review sends sampled images and your request to ${cfg.model}. Manual review stays in your browser.`
+  : 'AI review is unavailable until the model is configured. Manual review stays in your browser.';
+}).catch(()=>{
+ $('modelNote').textContent='AI configuration could not be loaded. Manual review stays in your browser.';
+}).finally(controls);
 controls();draw();

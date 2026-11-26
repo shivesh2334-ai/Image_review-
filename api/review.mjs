@@ -1,6 +1,5 @@
-export default function handler(request, response) {
-  response.setHeader('Cache-Control', 'no-store');
-  return response.status(503).json({
-    error: 'The hosted viewer supports manual review. For AI review, run the local server with a configured imaging model.'
-  });
+import {handleReview} from '../lib/imaging-review.mjs';
+export default function handler(req,res){
+ res.setHeader('Cache-Control','no-store');
+ return handleReview(req,{hosted:true,send:(status,body)=>res.status(status).json(body)});
 }

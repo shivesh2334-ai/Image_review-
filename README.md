@@ -74,4 +74,11 @@ AI suggestions are preliminary and require clinician verification. Sampled frame
 
 ## Vercel
 
-Import the repository root as an Other project. The deployed viewer supports manual review and the PE teaching schematic. AI requests are disabled on the hosted build. Run the local server with an approved imaging model for AI review.
+Import the repository root as an Other project. The deployed viewer supports manual review and the PE teaching schematic. Vercel serves the viewer and forwards authorized AI requests to a separate model server. To enable hosted MedGemma, set these Production environment variables and redeploy:
+
+- `IMAGING_MODEL_URL` — externally reachable HTTPS URL ending in `/v1/chat/completions` for a vLLM service already serving MedGemma.
+- `IMAGING_MODEL_KEY` — model server bearer token, if required.
+- `IMAGING_REVIEW_ACCESS_TOKEN` — independent high-entropy access code shared only with approved reviewers. Enter this code in the viewer.
+- `IMAGING_MODEL` — optional override if the served model name differs from `google/medgemma-1.5-4b-it`.
+
+`GET /api/config` reports configuration without exposing credentials or the model endpoint. It does not call inference. Verify the model with a de-identified or synthetic image before any approved use. Hosted AI remains disabled until the endpoint and access code are configured.
