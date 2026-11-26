@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500" viewBox="0 0 800 500">
+<rect width="800" height="500" fill="#09121a"/>
+<ellipse cx="400" cy="257" rx="335" ry="182" fill="#465361" stroke="#83919a" stroke-width="12"/>
+<ellipse cx="242" cy="242" rx="139" ry="143" fill="#111d28"/><ellipse cx="558" cy="242" rx="139" ry="143" fill="#111d28"/>
+<ellipse cx="400" cy="357" rx="44" ry="38" fill="#9da9ad"/>
+<path d="M407 200 Q402 249 271 265 M407 232 Q450 252 535 271" fill="none" stroke="#d9e4e5" stroke-width="52" stroke-linecap="round"/>
+<ellipse cx="268" cy="265" rx="22" ry="12" fill="#243440" transform="rotate(-10 268 265)"/>
+<text x="26" y="39" fill="#b3c6d0" font-family="system-ui" font-size="20">CTPA teaching schematic</text>
+<text x="73" y="260" fill="#b3c6d0" font-family="system-ui" font-size="23">R</text><text x="711" y="260" fill="#b3c6d0" font-family="system-ui" font-size="23">L</text>
+</svg>
