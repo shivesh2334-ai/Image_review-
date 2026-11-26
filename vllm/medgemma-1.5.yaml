@@ -1,0 +1,17 @@
+# vLLM launch config for MedGemma 1.5 (extended-context / multi-slice workstation profile)
+# Uses Google MedGemma 1.5 open weights (google/medgemma-1.5-4b-it) with a larger context window
+# and concurrency budget for 24-80 GB GPUs (e.g., L40S, A100, H100).
+# Launch with:
+#   export HF_TOKEN=your_huggingface_token
+#   vllm serve --config vllm/medgemma-1.5.yaml
+
+model: google/medgemma-1.5-4b-it
+served-model-name: google/medgemma-1.5-4b-it
+host: 127.0.0.1
+port: 8000
+dtype: bfloat16
+max-model-len: 32768
+gpu-memory-utilization: 0.92
+max-num-seqs: 8
+limit-mm-per-prompt: '{"image": 8}'
+generation-config: vllm

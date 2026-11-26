@@ -27,8 +27,16 @@ function draw(){
   const textWidth=ctx.measureText(title).width;
   const left=Math.max(0,Math.min(canvas.width-textWidth-10,x+13));
   const top=Math.max(0,y-26);
+  const color=m.kind==='finding'?'#ffc56b':'#82dfdc';
+  if(m.box){
+   const bx=m.box.x0*canvas.width,by=m.box.y0*canvas.height;
+   const bw=(m.box.x1-m.box.x0)*canvas.width,bh=(m.box.y1-m.box.y0)*canvas.height;
+   if(bw>1&&bh>1){
+    ctx.save();ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.setLineDash([5,4]);ctx.strokeRect(bx,by,bw,bh);ctx.restore();
+   }
+  }
   ctx.fillStyle='#09121bdc';ctx.fillRect(left,top,textWidth+10,23);
-  ctx.strokeStyle=ctx.fillStyle=m.kind==='finding'?'#ffc56b':'#82dfdc';
+  ctx.strokeStyle=ctx.fillStyle=color;
   ctx.lineWidth=2;ctx.beginPath();ctx.arc(x,y,7,0,Math.PI*2);ctx.stroke();
   ctx.fillText(title,left+5,top+17);
  }
@@ -147,4 +155,9 @@ $('demo').onclick=async()=>{
   message('Teaching example: a dark filling defect interrupts the contrast-filled right pulmonary artery. Review the full CTPA series to confirm a suspected embolus.');list();controls();draw()
  };im.src='pe-case.svg';
 };
+fetch('/api/config').then(r=>r.ok?r.json():null).then(cfg=>{
+ if(!cfg||!$('modelNote'))return;
+ const adapterLabel=cfg.adapter==='medgemma'?'MedGemma box-to-point + JSON schema':'point + JSON schema';
+ $('modelNote').textContent=`Media stays in your browser during manual review. AI review sends sampled images and your request to ${cfg.model} (${adapterLabel}).`;
+}).catch(()=>{});
 controls();draw();

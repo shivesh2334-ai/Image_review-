@@ -1,0 +1,13 @@
+{
+  "name": "imaging-review",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "start": "node server.mjs",
+    "build": "node --check server.mjs && node --check lib/medgemma-adapter.mjs && node --check public/app.js",
+    "lint": "node --check server.mjs && node --check lib/medgemma-adapter.mjs && node --check public/app.js",
+    "test": "node --test tests/medgemma-adapter.test.mjs"
+  }
+}

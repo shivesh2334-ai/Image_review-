@@ -1,0 +1,20 @@
+# vLLM launch config for Google MedGemma 1.5 4B (open weights) — Default Imaging Review model
+# Requires accepting Google Health AI Developer Foundations terms on Hugging Face:
+#   https://huggingface.co/google/medgemma-1.5-4b-it
+# Launch with:
+#   export HF_TOKEN=your_huggingface_token
+#   vllm serve --config vllm/medgemma-1.5-4b.yaml
+
+model: google/medgemma-1.5-4b-it
+served-model-name: google/medgemma-1.5-4b-it
+host: 127.0.0.1
+port: 8000
+dtype: bfloat16
+# 16384 supports up to 8 sampled frames + structured JSON output on a single 16-24 GB GPU.
+# Increase toward 131072 on higher-VRAM GPUs if needed.
+max-model-len: 16384
+gpu-memory-utilization: 0.90
+max-num-seqs: 4
+# Matches the viewer's maximum 8-frame sweep per review request
+limit-mm-per-prompt: '{"image": 8}'
+generation-config: vllm

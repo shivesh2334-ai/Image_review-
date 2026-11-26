@@ -19,27 +19,54 @@ Open <http://127.0.0.1:4173>. Manual review, the teaching case and optional AI r
 3. For AI suggestions, enter a request or use a preset. Select the current frame or an eight-frame sweep. Confirm de-identification and processing approval before you send. Check each proposed marker against the original study.
 4. Use **Save marked frame** for a PNG or **Export review** for the request, last AI response and current annotations in JSON. Export before loading a new study.
 
-## Connect an imaging model
+## Default AI model: MedGemma 1.5 4B (Google, open weights) via vLLM
 
-The local server accepts a configured vision endpoint that implements the OpenAI-compatible Chat Completions request format and supports base64 JPEGs. Use a model validated for the imaging task and approved for the data you intend to submit. The endpoint must support HTTPS, or HTTP on loopback. Example configuration for a locally running model service:
+By default, `server.mjs` targets **`google/medgemma-1.5-4b-it`** at `http://127.0.0.1:8000/v1/chat/completions` through `lib/medgemma-adapter.mjs`:
+
+- **JSON-schema enforcement**: Sends a strict JSON Schema via OpenAI-compatible `response_format` (`json_schema`, `strict: true`) with automatic fallback to vLLM `guided_json`, plus server-side schema validation before returning annotations.
+- **Box-to-point conversion**: Requests MedGemma 1.5's native `box_2d` (`[y0, x0, y1, x1]` on the `0–1000` scale) and converts each bounding box into normalized `[0, 1]` `(x, y)` marker coordinates while preserving normalized box bounds (`{ x0, y0, x1, y1 }`) for canvas overlay and JSON export.
+
+### Launch MedGemma 1.5 / MedGemma 1.5 4B with vLLM
+
+1. Accept the Health AI Developer Foundations terms on [google/medgemma-1.5-4b-it](https://huggingface.co/google/medgemma-1.5-4b-it) and export your Hugging Face token (`HF_TOKEN`).
+2. Start vLLM using one of the included launch configs:
+
+```sh
+# Default MedGemma 1.5 4B profile (16-24 GB GPU, up to 8 images per request)
+export HF_TOKEN=your_hf_token
+vllm serve --config vllm/medgemma-1.5-4b.yaml
+
+# Or extended-context MedGemma 1.5 profile (24-80 GB GPU)
+vllm serve --config vllm/medgemma-1.5.yaml
+
+# Or via the helper script / Docker Compose
+./vllm/launch-medgemma.sh 4b
+# docker compose -f vllm/docker-compose.yml up
+```
+
+3. Start the Imaging Review server (`npm run dev`). No extra environment variables are required when using the default local vLLM port (`8000`).
+
+### Override model or adapter settings
 
 ```sh
 IMAGING_MODEL_URL=http://127.0.0.1:8000/v1/chat/completions \
-IMAGING_MODEL=your-imaging-model \
-node server.mjs
+IMAGING_MODEL=google/medgemma-1.5-4b-it \
+IMAGING_ADAPTER=auto \
+IMAGING_SCHEMA_MODE=response_format \
+npm run dev
 ```
 
-Set `IMAGING_MODEL_KEY` on the server if the provider requires a token. The key stays server-side. The application does not record uploads or model responses on disk. A remote model receives sampled images and request text and may apply its own retention rules. Do not send studies containing identifying information, including burned-in identifiers. The review server binds to loopback and is intended for local use.
+Set `IMAGING_MODEL_KEY` on the server if your endpoint requires a bearer token. The key stays server-side. The application does not record uploads or model responses on disk. A remote model receives sampled images and request text and may apply its own retention rules. Do not send studies containing identifying information, including burned-in identifiers.
 
 ### Model response format
 
-Return a JSON object as the assistant message content, for example:
+In MedGemma mode (`IMAGING_ADAPTER=auto` or `medgemma`), the model returns `box_2d` (`[y0, x0, y1, x1]` on `0–1000`), which the adapter validates and converts to normalized `(x, y)` points plus `box`:
 
 ```json
-{"summary":"Example observation","limitations":"Only one frame supplied","annotations":[{"frame":0,"label":"Example landmark","kind":"anatomy","x":0.42,"y":0.51}]}
+{"summary":"Example observation","limitations":"Only one frame supplied","annotations":[{"frame":0,"label":"Example landmark","kind":"anatomy","box_2d":[460,370,560,470]}]}
 ```
 
-Frame indices start at zero. Coordinates are fractions measured from the top-left of the submitted image. Annotation types are `anatomy` and `finding`.
+Frame indices start at zero. Annotation types are `anatomy` and `finding`. Point-based models (`IMAGING_ADAPTER=point`) returning normalized `x` and `y` in `[0, 1]` remain supported.
 
 ## Clinical scope
 

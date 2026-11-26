@@ -1,11 +1,24 @@
 import {createServer} from 'node:http';
 import {readFile} from 'node:fs/promises';
+import {
+ DEFAULT_MODEL,
+ DEFAULT_UPSTREAM,
+ buildChatCompletionRequest,
+ parseReviewResponse,
+ resolveAdapterMode,
+ resolveMaxTokens,
+ resolveSchemaMode
+} from './lib/medgemma-adapter.mjs';
 
-const port = Number(process.env.PORT || 4173);
-const host = '127.0.0.1';
-const upstream = process.env.IMAGING_MODEL_URL;
-const model = process.env.IMAGING_MODEL;
+const port = Number(process.env.PORT || 3000);
+const host = process.env.HOST || '0.0.0.0';
+const upstream = (process.env.IMAGING_MODEL_URL ?? DEFAULT_UPSTREAM).trim();
+const model = (process.env.IMAGING_MODEL || DEFAULT_MODEL).trim();
 const key = process.env.IMAGING_MODEL_KEY;
+const adapterMode = resolveAdapterMode(model, process.env.IMAGING_ADAPTER);
+const schemaMode = resolveSchemaMode(process.env.IMAGING_SCHEMA_MODE);
+const maxTokens = resolveMaxTokens(process.env.IMAGING_MAX_TOKENS);
+
 const assets = new Map([
  ['/', ['index.html', 'text/html; charset=utf-8']],
  ['/index.html', ['index.html', 'text/html; charset=utf-8']],
@@ -36,49 +49,66 @@ function validInput(data) {
   data.frames.every(f=>Number.isFinite(f?.time)&&f.time>=0&&typeof f.image==='string'&&
    f.image.length<=500000&&/^data:image\/jpeg;base64,\/9j\/[A-Za-z0-9+/]+=*$/.test(f.image));
 }
-function parseReview(response, count) {
- const content=response?.choices?.[0]?.message?.content;
- if(typeof content!=='string'||content.length>22000)throw Error('Invalid model response.');
- const result=JSON.parse(content.trim().replace(/^```(?:json)?\s*|\s*```$/gi,''));
- if(!result||typeof result.summary!=='string'||typeof result.limitations!=='string'||!Array.isArray(result.annotations)){
-  throw Error('Invalid model response.');
+async function postCompletion(endpoint,headers,body) {
+ try{
+  return await fetch(endpoint,{
+   method:'POST',headers,redirect:'error',signal:AbortSignal.timeout(60000),
+   body:JSON.stringify(body)
+  });
+ }catch(error){
+  const err=new Error('Unable to reach the configured imaging model endpoint.');
+  err.status=503;
+  err.cause=error;
+  throw err;
  }
- return {
-  summary:result.summary.slice(0,3500),limitations:result.limitations.slice(0,1500),
-  annotations:result.annotations.slice(0,20).filter(a=>a&&Number.isInteger(a.frame)&&a.frame>=0&&a.frame<count&&
-   typeof a.label==='string'&&a.label.trim()&&['anatomy','finding'].includes(a.kind)&&
-   [a.x,a.y].every(v=>Number.isFinite(v)&&v>=0&&v<=1))
-   .map(({frame,label,kind,x,y})=>({frame,label:label.trim().slice(0,120),kind,x,y}))
- };
 }
 async function runReview(data) {
  const endpoint=new URL(upstream);
  const local=['localhost','127.0.0.1','[::1]'].includes(endpoint.hostname);
- if(endpoint.protocol!=='https:'&&!(local&&endpoint.protocol==='http:'))throw Error('Model requires HTTPS or a loopback endpoint.');
+ if(endpoint.protocol!=='https:'&&!(local&&endpoint.protocol==='http:')){
+  const err=new Error('Model requires HTTPS or a loopback endpoint.');
+  err.status=502;
+  throw err;
+ }
  const headers={'Content-Type':'application/json'};
  if(key)headers.Authorization='Bearer '+key;
- const content=[{type:'text',text:'Modality: '+data.modality+'\nReview request: '+data.request}];
- data.frames.forEach(({image,time},i)=>{
-  content.push({type:'text',text:'Frame index '+i+' at '+time.toFixed(3)+' seconds'});
-  content.push({type:'image_url',image_url:{url:image}});
- });
- const instructions=`Assist a qualified clinician with preliminary review of the provided sampled images. Report only observations supported by the images. Distinguish possible pathology and artifact, and describe limitations including missing slices, sequences or windows where relevant. If uncertain, explicitly state what cannot be assessed and omit uncertain marker locations. Do not infer laterality without adequate evidence, diagnose definitively, recommend treatment or exclude disease from a limited sample. Return only JSON with summary (string), limitations (string), and annotations (array of objects with zero-based frame, label, kind "anatomy" or "finding", and x and y as normalized fractions measured from the top-left of the image). Use suspected wording for pathological findings. Return an empty annotations array when no defensible location is visible.`;
- const response=await fetch(endpoint,{
-  method:'POST',headers,redirect:'error',signal:AbortSignal.timeout(45000),
-  body:JSON.stringify({model,messages:[{role:'system',content:instructions},{role:'user',content}]})
- });
- if(!response.ok)throw Error('Model rejected the request.');
- return parseReview(await response.json(),data.frames.length);
+
+ const primaryBody=buildChatCompletionRequest({model,data,adapterMode,schemaMode,maxTokens});
+ let response=await postCompletion(endpoint,headers,primaryBody);
+
+ // Automatic fallback for older vLLM servers that expect top-level guided_json instead of response_format
+ if(!response.ok&&schemaMode==='response_format'&&(response.status===400||response.status===422)){
+  const fallbackBody=buildChatCompletionRequest({model,data,adapterMode,schemaMode:'guided_json',maxTokens});
+  response=await postCompletion(endpoint,headers,fallbackBody);
+ }
+
+ if(!response.ok){
+  const err=new Error('Model rejected the request.');
+  err.status=502;
+  throw err;
+ }
+ return parseReviewResponse(await response.json(),data.frames.length);
 }
 const server=createServer(async(req,res)=>{
  res.setHeader('X-Content-Type-Options','nosniff');
  res.setHeader('Referrer-Policy','no-referrer');
- if(![`127.0.0.1:${port}`,`localhost:${port}`].includes(req.headers.host)){
-  return json(res,403,{error:'Use the local application address.'});
+ const pathname=new URL(req.url||'/','http://localhost').pathname;
+ if(pathname==='/api/config'&&req.method==='GET'){
+  return json(res,200,{
+   defaultModel:DEFAULT_MODEL,
+   model,
+   adapter:adapterMode,
+   schemaEnforcement:schemaMode,
+   endpointConfigured:Boolean(upstream)
+  });
  }
- if(req.url==='/api/review'&&req.method==='POST'){
+ if(pathname==='/api/review'&&req.method==='POST'){
   const origin=req.headers.origin;
-  if(origin&&origin!=='http://'+req.headers.host)return json(res,403,{error:'Use the local application to submit a review.'});
+  if(origin){
+   let originHost='';
+   try{originHost=new URL(origin).host}catch{}
+   if(!originHost||originHost!==req.headers.host)return json(res,403,{error:'Use the application address to submit a review.'});
+  }
   if(!req.headers['content-type']?.startsWith('application/json'))return json(res,415,{error:'Expected JSON.'});
   if(!upstream||!model)return json(res,503,{error:'AI review requires a configured imaging model. Manual annotation remains available.'});
   if(inFlight)return json(res,429,{error:'Another review is running.'});
@@ -88,16 +118,23 @@ const server=createServer(async(req,res)=>{
    let data;
    try{data=await payload(req)}catch{return json(res,400,{error:'Unable to read the review request within the 4 MB limit.'})}
    if(!validInput(data))return json(res,400,{error:'Use 1–8 JPEG frames and a request of 1–1,500 characters.'});
-   try{return json(res,200,await runReview(data))}catch{return json(res,502,{error:'The imaging model did not return a valid review. Check the model configuration and try again.'})}
+   try{
+    return json(res,200,await runReview(data));
+   }catch(err){
+    if(err?.status===503){
+     return json(res,503,{error:`Could not reach the vLLM endpoint for ${model}. Start vLLM with vllm/medgemma-1.5-4b.yaml or set IMAGING_MODEL_URL. Manual annotation remains available.`});
+    }
+    return json(res,502,{error:'The imaging model did not return a valid review matching the JSON schema. Check the model configuration and try again.'});
+   }
   }finally{inFlight=false}
  }
- const asset=req.method==='GET'&&assets.get(req.url);
+ const asset=(req.method==='GET'||req.method==='HEAD')&&assets.get(pathname);
  if(!asset)return json(res,404,{error:'Page not found.'});
  try{
   const bytes=await readFile(new URL('public/'+asset[0],import.meta.url));
-  res.writeHead(200,{'Content-Type':asset[1],'Content-Security-Policy':"default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"});
-  res.end(bytes);
+  res.writeHead(200,{'Content-Type':asset[1],'Content-Security-Policy':"default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'"});
+  res.end(req.method==='HEAD'?undefined:bytes);
  }catch{json(res,500,{error:'Unable to load the application.'})}
 });
-server.requestTimeout=20000;
-server.listen(port,host,()=>console.log(`Imaging Review is available at http://${host}:${port}`));
+server.requestTimeout=65000;
+server.listen(port,host,()=>console.log(`Imaging Review is available at http://${host}:${port} (model: ${model}, adapter: ${adapterMode})`));

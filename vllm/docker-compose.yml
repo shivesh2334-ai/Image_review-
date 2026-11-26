@@ -1,0 +1,29 @@
+services:
+  medgemma-vllm:
+    image: vllm/vllm-openai:latest
+    container_name: medgemma-1-5-4b-vllm
+    restart: unless-stopped
+    ipc: host
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      HF_TOKEN: "${HF_TOKEN:-}"
+      VLLM_API_KEY: "${IMAGING_MODEL_KEY:-}"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+      - ./medgemma-1.5-4b.yaml:/etc/vllm/medgemma-1.5-4b.yaml:ro
+    command:
+      - --config
+      - /etc/vllm/medgemma-1.5-4b.yaml
+      - --host
+      - 0.0.0.0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  huggingface-cache:
